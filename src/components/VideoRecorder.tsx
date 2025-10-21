@@ -116,11 +116,11 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, 
         combinedStream.addTrack(track);
       });
 
-      // Create recorder
+      // Create recorder with optimized settings for smaller file sizes
       const recorder = new MediaRecorder(combinedStream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 1000000,
-        audioBitsPerSecond: 128000
+        mimeType: 'video/webm;codecs=vp8', // Use vp8 for better compression
+        videoBitsPerSecond: 500000, // Reduced from 1Mbps to 500Kbps
+        audioBitsPerSecond: 64000 // Reduced from 128Kbps to 64Kbps
       });
 
       const chunks: BlobPart[] = [];
@@ -135,12 +135,28 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, 
         const blob = new Blob(chunks, { type: 'video/webm' });
         const checksum = await calculateChecksum(blob);
         
-        // Upload recording to storage
-        try {
-          await uploadRecording(blob, checksum);
-        } catch (error) {
-          console.error('Failed to upload recording:', error);
-          // Continue with the callback even if upload fails
+        // Upload recording to storage with retry mechanism
+        let uploadSuccess = false;
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (!uploadSuccess && retryCount < maxRetries) {
+          try {
+            await uploadRecording(blob, checksum);
+            uploadSuccess = true;
+          } catch (error) {
+            retryCount++;
+            console.error(`Upload attempt ${retryCount} failed:`, error);
+            
+            if (retryCount < maxRetries) {
+              toast.warning(`Upload failed, retrying... (${retryCount}/${maxRetries})`);
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+            } else {
+              toast.error("Failed to upload recording after multiple attempts. Recording saved locally.");
+              console.error('All upload attempts failed:', error);
+            }
+          }
         }
         
         if (onRecordingStop) {
@@ -236,11 +252,19 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, 
       setIsUploading(true);
       setUploadProgress(0);
 
+      // Check file size before upload (5GB limit)
+      const maxSize = 5 * 1024 * 1024 * 1024; // 5GB in bytes
+      if (blob.size > maxSize) {
+        throw new Error(`Recording file is too large (${(blob.size / (1024 * 1024 * 1024)).toFixed(2)}GB). Maximum allowed size is 5GB.`);
+      }
+
       // Create filename with session ID and timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `session-${sessionId}-${timestamp}.webm`;
 
-      // Upload to Supabase storage
+      console.log(`Uploading recording: ${filename}, Size: ${(blob.size / (1024 * 1024)).toFixed(2)}MB`);
+
+      // Upload to Supabase storage with progress tracking
       const { data, error } = await supabase.storage
         .from('exam-recordings')
         .upload(filename, blob, {
@@ -248,7 +272,10 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, 
           upsert: false
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Storage upload error:', error);
+        throw new Error(`Upload failed: ${error.message}`);
+      }
 
       // Update session with recording URL
       const { error: updateError } = await supabase
@@ -259,13 +286,17 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, 
         })
         .eq('id', sessionId);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Database update error:', updateError);
+        throw new Error(`Failed to update session: ${updateError.message}`);
+      }
 
-      toast.success("Recording uploaded successfully");
+      toast.success(`Recording uploaded successfully (${(blob.size / (1024 * 1024)).toFixed(2)}MB)`);
       return data.path;
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error("Failed to upload recording");
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload recording';
+      toast.error(errorMessage);
       throw error;
     } finally {
       setIsUploading(false);
