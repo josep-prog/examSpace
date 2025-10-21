@@ -49,10 +49,12 @@ interface AnswerData {
   submitted_at: string;
   question: {
     question_text: string;
-    question_type: string;
-    options: string | null;
+    options: any;
     correct_answer: string | null;
     points: number;
+    section: {
+      section_type: string;
+    };
   };
 }
 
@@ -92,10 +94,12 @@ const SessionReview = () => {
           *,
           question:exam_questions(
             question_text,
-            question_type,
             options,
             correct_answer,
-            points
+            points,
+            section:exam_sections(
+              section_type
+            )
           )
         `)
         .eq("session_id", sessionId)
@@ -208,9 +212,9 @@ const SessionReview = () => {
       const question = answer.question;
       totalPoints += question.points;
 
-      if (question.question_type === 'mcq' && answer.selected_option === question.correct_answer) {
+      if (question.section.section_type === 'mcq' && answer.selected_option === question.correct_answer) {
         earnedPoints += question.points;
-      } else if (question.question_type === 'theoretical' && answer.answer_text) {
+      } else if (question.section.section_type === 'theoretical' && answer.answer_text) {
         // For theoretical questions, we'll assume partial credit for now
         // In a real system, this would need manual grading
         earnedPoints += question.points * 0.5; // 50% for having an answer
@@ -384,7 +388,7 @@ const SessionReview = () => {
                               {answer.question.question_text}
                             </p>
 
-                            {answer.question.question_type === 'mcq' && (
+                            {answer.question.section.section_type === 'mcq' && (
                               <div>
                                 <p className="text-sm font-medium mb-2">Selected Answer:</p>
                                 <p className="text-sm bg-muted p-2 rounded">
@@ -398,7 +402,7 @@ const SessionReview = () => {
                               </div>
                             )}
 
-                            {answer.question.question_type === 'theoretical' && (
+                            {answer.question.section.section_type === 'theoretical' && (
                               <div>
                                 <p className="text-sm font-medium mb-2">Answer:</p>
                                 <p className="text-sm bg-muted p-2 rounded whitespace-pre-wrap">
@@ -407,7 +411,7 @@ const SessionReview = () => {
                               </div>
                             )}
 
-                            {answer.question.question_type === 'practical' && answer.code_submission && (
+                            {answer.question.section.section_type === 'practical' && answer.code_submission && (
                               <div>
                                 <p className="text-sm font-medium mb-2">Code Submission:</p>
                                 <pre className="text-sm bg-muted p-2 rounded overflow-x-auto">
