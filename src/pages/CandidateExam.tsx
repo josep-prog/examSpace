@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import VideoRecorder from "@/components/VideoRecorder";
@@ -55,6 +56,14 @@ const CandidateExam = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
+  const [recordingRequired, setRecordingRequired] = useState(true);
+  const [examStarted, setExamStarted] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState({
+    camera: false,
+    microphone: false,
+    screen: false
+  });
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -99,6 +108,7 @@ const CandidateExam = () => {
 
       if (sessionError) throw sessionError;
       setSession(sessionData);
+      setRecordingRequired(sessionData.recording_required || true);
 
       // Load exam
       const { data: examData, error: examError } = await supabase
@@ -231,6 +241,16 @@ const CandidateExam = () => {
 
   const handleRecordingStart = () => {
     setIsRecording(true);
+    setExamStarted(true);
+    
+    // Update session to mark recording as started
+    if (sessionId) {
+      supabase
+        .from("candidate_sessions")
+        .update({ recording_started_at: new Date().toISOString() })
+        .eq("id", sessionId);
+    }
+    
     toast.success("Recording started - Exam monitoring is now active");
   };
 
@@ -239,6 +259,64 @@ const CandidateExam = () => {
     setRecordingChecksum(checksum);
     setIsRecording(false);
     toast.success("Recording completed and saved");
+  };
+
+  const requestPermissions = async () => {
+    try {
+      console.log("Starting permission request process...");
+      setShowPermissionDialog(true);
+      
+      // Request camera and microphone permissions
+      console.log("Requesting camera and microphone permissions...");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      
+      // Stop the stream immediately as we just needed permission
+      stream.getTracks().forEach(track => track.stop());
+      
+      setPermissionStatus(prev => ({
+        ...prev,
+        camera: true,
+        microphone: true
+      }));
+      
+      console.log("Camera and microphone permissions granted");
+      toast.success("Camera and microphone permissions granted!");
+      
+      // Now request screen sharing
+      console.log("Requesting screen sharing permission...");
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'monitor',
+          cursor: 'always'
+        },
+        audio: true
+      });
+      
+      // Stop the screen stream immediately
+      screenStream.getTracks().forEach(track => track.stop());
+      
+      setPermissionStatus(prev => ({
+        ...prev,
+        screen: true
+      }));
+      
+      console.log("Screen sharing permission granted");
+      toast.success("Screen sharing permission granted!");
+      
+      // All permissions granted, start the exam
+      console.log("All permissions granted, starting exam...");
+      setExamStarted(true);
+      setShowPermissionDialog(false);
+      
+      toast.success("All permissions granted! Starting exam...");
+      
+    } catch (error) {
+      console.error("Permission request failed:", error);
+      toast.error(`Failed to get permissions: ${error instanceof Error ? error.message : 'Unknown error'}. Please allow camera, microphone, and screen sharing to continue.`);
+    }
   };
 
   const submitExam = async () => {
@@ -320,6 +398,66 @@ const CandidateExam = () => {
     );
   }
 
+  // Show permission dialog if recording is required but not started
+  if (recordingRequired && !examStarted) {
+    return (
+      <div className="min-h-screen bg-gradient-subtle flex items-center justify-center px-6">
+        <Card className="w-full max-w-2xl">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-warning/20">
+              <Camera className="h-8 w-8 text-warning" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Exam Monitoring Required</CardTitle>
+            <CardDescription className="text-lg">
+              To ensure exam integrity, you must enable camera, microphone, and screen sharing before starting.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                <Camera className="h-5 w-5 text-blue-600" />
+                <div>
+                  <h4 className="font-semibold text-blue-900">Camera Access</h4>
+                  <p className="text-sm text-blue-700">Your webcam will be recorded for supervision</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                <Mic className="h-5 w-5 text-green-600" />
+                <div>
+                  <h4 className="font-semibold text-green-900">Microphone Access</h4>
+                  <p className="text-sm text-green-700">Audio will be recorded for monitoring</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg">
+                <Monitor className="h-5 w-5 text-purple-600" />
+                <div>
+                  <h4 className="font-semibold text-purple-900">Screen Sharing</h4>
+                  <p className="text-sm text-purple-700">Your entire screen will be recorded</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg">
+              <p className="text-sm text-warning-foreground">
+                <strong>Important:</strong> Recording is mandatory for this exam. You cannot proceed without enabling all permissions.
+              </p>
+            </div>
+
+            <div className="flex justify-center">
+              <Button 
+                onClick={requestPermissions} 
+                size="lg"
+                className="w-full"
+              >
+                Enable Monitoring & Start Exam
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const currentSectionData = sections[currentSection];
   const progress = ((currentSection + 1) / sections.length) * 100;
 
@@ -362,6 +500,8 @@ const CandidateExam = () => {
               sessionId={sessionId!}
               onRecordingStart={handleRecordingStart}
               onRecordingStop={handleRecordingStop}
+              autoStart={recordingRequired}
+              mandatory={recordingRequired}
             />
           </div>
 
@@ -481,8 +621,56 @@ const CandidateExam = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Permission Request Dialog */}
+      <Dialog open={showPermissionDialog} onOpenChange={setShowPermissionDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5" />
+              Requesting Permissions
+            </DialogTitle>
+            <DialogDescription>
+              Please allow the following permissions to start your exam:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+              <Camera className="h-5 w-5 text-blue-600" />
+              <div className="flex-1">
+                <h4 className="font-semibold text-blue-900">Camera Access</h4>
+                <p className="text-sm text-blue-700">Allow camera for supervision</p>
+              </div>
+              <div className={`w-3 h-3 rounded-full ${permissionStatus.camera ? 'bg-green-500' : 'bg-gray-300'}`} />
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+              <Mic className="h-5 w-5 text-green-600" />
+              <div className="flex-1">
+                <h4 className="font-semibold text-green-900">Microphone Access</h4>
+                <p className="text-sm text-green-700">Allow microphone for monitoring</p>
+              </div>
+              <div className={`w-3 h-3 rounded-full ${permissionStatus.microphone ? 'bg-green-500' : 'bg-gray-300'}`} />
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg">
+              <Monitor className="h-5 w-5 text-purple-600" />
+              <div className="flex-1">
+                <h4 className="font-semibold text-purple-900">Screen Sharing</h4>
+                <p className="text-sm text-purple-700">Allow screen sharing for supervision</p>
+              </div>
+              <div className={`w-3 h-3 rounded-full ${permissionStatus.screen ? 'bg-green-500' : 'bg-gray-300'}`} />
+            </div>
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                <strong>Note:</strong> You will be prompted by your browser to allow these permissions. 
+                Please click "Allow" for each request to continue with the exam.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 export default CandidateExam;
+

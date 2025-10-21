@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,38 +31,100 @@ interface ExamQuestion {
   points: number;
 }
 
-const CreateExam = () => {
+const EditExam = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const { examId } = useParams<{ examId: string }>();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [examTitle, setExamTitle] = useState("");
   const [examDescription, setExamDescription] = useState("");
   const [rotationSlot, setRotationSlot] = useState(1);
-  const [sections, setSections] = useState<ExamSection[]>([
-    {
-      id: "1",
-      section_type: "mcq",
-      title: "Multiple Choice Questions",
-      timer_minutes: 30,
-      section_order: 1,
-      questions: []
-    },
-    {
-      id: "2", 
-      section_type: "theoretical",
-      title: "Theoretical Questions",
-      timer_minutes: 45,
-      section_order: 2,
-      questions: []
-    },
-    {
-      id: "3",
-      section_type: "practical", 
-      title: "Practical Coding",
-      timer_minutes: 60,
-      section_order: 3,
-      questions: []
+  const [sections, setSections] = useState<ExamSection[]>([]);
+
+  useEffect(() => {
+    if (examId) {
+      loadExamData();
     }
-  ]);
+  }, [examId]);
+
+  const loadExamData = async () => {
+    try {
+      setLoading(true);
+
+      // Load exam details
+      const { data: examData, error: examError } = await supabase
+        .from("exams")
+        .select("*")
+        .eq("id", examId)
+        .single();
+
+      if (examError) throw examError;
+
+      setExamTitle(examData.title);
+      setExamDescription(examData.description || "");
+      setRotationSlot(examData.rotation_slot);
+
+      // Load sections with questions
+      const { data: sectionsData, error: sectionsError } = await supabase
+        .from("exam_sections")
+        .select(`
+          *,
+          exam_questions(*)
+        `)
+        .eq("exam_id", examId)
+        .order("section_order");
+
+      if (sectionsError) throw sectionsError;
+
+      // If no sections exist, create default sections
+      if (sectionsData.length === 0) {
+        const defaultSections: ExamSection[] = [
+          {
+            id: "1",
+            section_type: "mcq",
+            title: "Multiple Choice Questions",
+            timer_minutes: 30,
+            section_order: 1,
+            questions: []
+          },
+          {
+            id: "2", 
+            section_type: "theoretical",
+            title: "Theoretical Questions",
+            timer_minutes: 45,
+            section_order: 2,
+            questions: []
+          },
+          {
+            id: "3",
+            section_type: "practical", 
+            title: "Practical Coding",
+            timer_minutes: 60,
+            section_order: 3,
+            questions: []
+          }
+        ];
+        setSections(defaultSections);
+      } else {
+        // Format existing sections and questions
+        const formattedSections = sectionsData.map(section => ({
+          ...section,
+          questions: section.exam_questions.map((q: any) => ({
+            ...q,
+            options: q.options ? JSON.parse(q.options) : undefined
+          }))
+        }));
+        setSections(formattedSections);
+      }
+
+    } catch (error) {
+      console.error("Error loading exam data:", error);
+      toast.error("Failed to load exam data");
+      navigate("/admin/manage-exams");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const addQuestion = (sectionId: string) => {
     setSections(prev => prev.map(section => {
@@ -146,30 +208,36 @@ const CreateExam = () => {
       }
     }
 
-    setLoading(true);
+    setSaving(true);
 
     try {
-      // Create exam
-      const { data: exam, error: examError } = await supabase
+      // Update exam details
+      const { error: examError } = await supabase
         .from("exams")
-        .insert({
+        .update({
           title: examTitle,
           description: examDescription,
           rotation_slot: rotationSlot,
-          is_active: true,
-          created_by: (await supabase.auth.getUser()).data.user?.id
+          updated_at: new Date().toISOString()
         })
-        .select()
-        .single();
+        .eq("id", examId);
 
       if (examError) throw examError;
 
-      // Create sections
+      // Delete existing sections and questions (cascade will handle questions)
+      const { error: deleteSectionsError } = await supabase
+        .from("exam_sections")
+        .delete()
+        .eq("exam_id", examId);
+
+      if (deleteSectionsError) throw deleteSectionsError;
+
+      // Create new sections and questions
       for (const section of sections) {
         const { data: examSection, error: sectionError } = await supabase
           .from("exam_sections")
           .insert({
-            exam_id: exam.id,
+            exam_id: examId,
             section_type: section.section_type,
             section_order: section.section_order,
             title: section.title,
@@ -197,13 +265,13 @@ const CreateExam = () => {
         }
       }
 
-      toast.success("Exam created successfully!");
-      navigate("/admin/dashboard");
+      toast.success("Exam updated successfully!");
+      navigate("/admin/manage-exams");
     } catch (error) {
-      console.error("Error creating exam:", error);
-      toast.error("Failed to create exam. Please try again.");
+      console.error("Error updating exam:", error);
+      toast.error("Failed to update exam. Please try again.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -216,26 +284,37 @@ const CreateExam = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-subtle flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading exam...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-subtle">
       {/* Header */}
       <header className="border-b border-border bg-card shadow-sm">
         <div className="container mx-auto flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="sm" onClick={() => navigate("/admin/dashboard")}>
+            <Button variant="outline" size="sm" onClick={() => navigate("/admin/manage-exams")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Dashboard
+              Back to Manage Exams
             </Button>
-            <h1 className="text-2xl font-bold text-foreground">Create New Exam</h1>
+            <h1 className="text-2xl font-bold text-foreground">Edit Exam</h1>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => navigate("/admin/dashboard")}>
               <Eye className="mr-2 h-4 w-4" />
               Preview
             </Button>
-            <Button onClick={handleSaveExam} disabled={loading}>
+            <Button onClick={handleSaveExam} disabled={saving}>
               <Save className="mr-2 h-4 w-4" />
-              {loading ? "Saving..." : "Save Exam"}
+              {saving ? "Saving..." : "Save Changes"}
             </Button>
           </div>
         </div>
@@ -472,5 +551,5 @@ const CreateExam = () => {
   );
 };
 
-export default CreateExam;
+export default EditExam;
 

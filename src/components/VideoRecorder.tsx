@@ -11,9 +11,11 @@ interface VideoRecorderProps {
   onRecordingStart?: () => void;
   onRecordingStop?: (blob: Blob, checksum: string) => void;
   onError?: (error: string) => void;
+  autoStart?: boolean;
+  mandatory?: boolean;
 }
 
-const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError }: VideoRecorderProps) => {
+const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, autoStart = false, mandatory = false }: VideoRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [hasPermissions, setHasPermissions] = useState(false);
@@ -36,6 +38,17 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError }
     };
   }, []);
 
+  // Auto-start recording if required
+  useEffect(() => {
+    if (autoStart && hasPermissions && !isRecording && !error) {
+      // Small delay to ensure UI is ready
+      const timer = setTimeout(() => {
+        startRecording();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [autoStart, hasPermissions, isRecording, error]);
+
   const checkPermissions = async () => {
     try {
       // Check camera permission
@@ -43,6 +56,9 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError }
       const microphonePermission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
       
       if (cameraPermission.state === 'granted' && microphonePermission.state === 'granted') {
+        setHasPermissions(true);
+      } else if (cameraPermission.state === 'prompt' || microphonePermission.state === 'prompt') {
+        // Permissions are in prompt state, we can request them
         setHasPermissions(true);
       } else {
         setError("Camera and microphone permissions are required for exam monitoring");
@@ -239,7 +255,10 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError }
           Exam Recording
         </CardTitle>
         <CardDescription>
-          Your screen and webcam are being recorded for exam integrity
+          {mandatory 
+            ? "Recording is mandatory for exam integrity - All permissions must be enabled"
+            : "Your screen and webcam are being recorded for exam integrity"
+          }
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -259,14 +278,23 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError }
 
           <div className="flex items-center gap-2">
             {!isRecording ? (
-              <Button onClick={startRecording} disabled={!hasPermissions}>
+              <Button 
+                onClick={startRecording} 
+                disabled={!hasPermissions}
+                className={mandatory ? "bg-warning hover:bg-warning/90" : ""}
+              >
                 <Play className="mr-2 h-4 w-4" />
-                Start Recording
+                {mandatory ? "Enable Monitoring" : "Start Recording"}
               </Button>
             ) : (
-              <Button onClick={stopRecording} variant="destructive">
+              <Button 
+                onClick={stopRecording} 
+                variant="destructive"
+                disabled={mandatory}
+                title={mandatory ? "Recording cannot be stopped during mandatory monitoring" : ""}
+              >
                 <Square className="mr-2 h-4 w-4" />
-                Stop Recording
+                {mandatory ? "Recording Active" : "Stop Recording"}
               </Button>
             )}
           </div>
@@ -310,3 +338,4 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError }
 };
 
 export default VideoRecorder;
+

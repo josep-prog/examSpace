@@ -65,11 +65,19 @@ const CandidateRegister = () => {
     setLoading(false);
 
     if (error) {
-      toast.error("Failed to register for exam. Please try again.");
+      console.error("Registration error:", error);
+      toast.error(`Failed to register for exam: ${error.message || "Please try again."}`);
       return;
     }
 
-    toast.success("Registration successful! Setting up your exam...");
+    toast.success("Registration successful! Redirecting to exam setup...");
+    
+    // Update session to mark recording as required
+    await supabase
+      .from("candidate_sessions")
+      .update({ recording_required: true })
+      .eq("id", session.id);
+    
     navigate(`/candidate/exam/${session.id}`);
   };
 
