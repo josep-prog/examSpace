@@ -1,3 +1,29 @@
+Google Drive upload integration
+
+Setup
+- Share the destination Drive folder with the service account email: examspace-bot@response-dashboard-475713.iam.gserviceaccount.com (Writer or higher).
+- Capture the folder ID from the Drive URL and store it as a secret in Supabase: GDRIVE_FOLDER_ID.
+- Store the full service account JSON as a Supabase secret: GDRIVE_SERVICE_ACCOUNT_JSON.
+
+Deploy Edge Function
+- Path: supabase/functions/upload-to-drive
+- Deploy: supabase functions deploy upload-to-drive --no-verify-jwt
+- Set secrets: supabase secrets set --env-file <(printf "GDRIVE_FOLDER_ID=YOUR_FOLDER_ID\nGDRIVE_SERVICE_ACCOUNT_JSON=$(cat examspace-storage.json)")
+
+Frontend behavior
+- VideoRecorder posts the recorded blob and candidateName to /functions/v1/upload-to-drive.
+- The Edge Function uploads using resumable upload and returns { id, name, webViewLink, webContentLink }.
+- The app saves recording_url to the Drive link (webViewLink/webContentLink) or file id.
+
+Filename collision
+- If a candidate name already exists in the folder, the function appends Roman numerals: (II), (III), ... before .webm.
+
+Session review
+- If recording_url is a Drive link or file id, the review page will render it; otherwise it falls back to Supabase storage.
+
+Security
+- Service account credentials are kept server-side via Supabase Edge Function. Do not expose in client builds.
+
 # Video Upload Fix Documentation
 
 ## Problem Analysis

@@ -108,14 +108,19 @@ const SessionReview = () => {
       if (answersError) throw answersError;
       setAnswers(answersData || []);
 
-      // Load video if recording URL exists
+      // Load video: if URL looks like a Drive link or ID, prefer it; else fallback to Supabase storage
       if (sessionData.recording_url) {
-        const { data: videoData } = await supabase.storage
-          .from('exam-recordings')
-          .createSignedUrl(sessionData.recording_url, 3600); // 1 hour expiry
-        
-        if (videoData?.signedUrl) {
-          setVideoUrl(videoData.signedUrl);
+        const url: string = sessionData.recording_url;
+        if (url.startsWith('http') && (url.includes('drive.google.com') || url.includes('googleusercontent.com'))) {
+          setVideoUrl(url);
+        } else if (/^[a-zA-Z0-9_-]{20,}$/.test(url)) {
+          // Looks like a Drive file ID
+          setVideoUrl(`https://drive.google.com/uc?id=${url}&export=download`);
+        } else {
+          const { data: videoData } = await supabase.storage
+            .from('exam-recordings')
+            .createSignedUrl(url, 3600);
+          if (videoData?.signedUrl) setVideoUrl(videoData.signedUrl);
         }
       }
     } catch (error) {

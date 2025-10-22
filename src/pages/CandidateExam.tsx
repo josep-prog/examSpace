@@ -326,26 +326,34 @@ const CandidateExam = () => {
     setSubmitting(true);
     
     try {
+      console.log("Starting exam submission...");
+      
       // Save final answers
       await saveAnswers();
+      console.log("Answers saved successfully");
 
-      // Update session status
+      // Update session status with better error handling
       const { error: sessionError } = await supabase
         .from("candidate_sessions")
         .update({
           status: 'completed',
           submitted_at: new Date().toISOString(),
-          recording_url: recordingChecksum // Store checksum for now
+          recording_url: recordingChecksum || recordingBlob ? 'uploaded' : null // Store status
         })
         .eq("id", sessionId);
 
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        console.error("Session update error:", sessionError);
+        throw new Error(`Failed to update session: ${sessionError.message}`);
+      }
 
+      console.log("Session updated successfully");
       toast.success("Exam submitted successfully!");
       navigate("/candidate/exam-complete");
     } catch (error) {
       console.error("Error submitting exam:", error);
-      toast.error("Failed to submit exam. Please try again.");
+      const errorMessage = error instanceof Error ? error.message : 'Failed to submit exam';
+      toast.error(`Failed to submit exam: ${errorMessage}. Please try again.`);
     } finally {
       setSubmitting(false);
     }
@@ -501,6 +509,7 @@ const CandidateExam = () => {
           <div className="lg:col-span-1">
             <VideoRecorder
               sessionId={sessionId!}
+              candidateName={(session?.full_name as string) || "Candidate"}
               onRecordingStart={handleRecordingStart}
               onRecordingStop={handleRecordingStop}
               autoStart={recordingRequired}

@@ -6,9 +6,11 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Play, Square, Camera, Mic, Monitor, AlertTriangle, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Prefer secure server-side upload via Supabase Edge Function
 
 interface VideoRecorderProps {
   sessionId: string;
+  candidateName?: string;
   onRecordingStart?: () => void;
   onRecordingStop?: (blob: Blob, checksum: string) => void;
   onError?: (error: string) => void;
@@ -16,7 +18,7 @@ interface VideoRecorderProps {
   mandatory?: boolean;
 }
 
-const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, autoStart = false, mandatory = false }: VideoRecorderProps) => {
+const VideoRecorder = ({ sessionId, candidateName, onRecordingStart, onRecordingStop, onError, autoStart = false, mandatory = false }: VideoRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [hasPermissions, setHasPermissions] = useState(false);
@@ -258,41 +260,96 @@ const VideoRecorder = ({ sessionId, onRecordingStart, onRecordingStop, onError, 
         throw new Error(`Recording file is too large (${(blob.size / (1024 * 1024 * 1024)).toFixed(2)}GB). Maximum allowed size is 5GB.`);
       }
 
-      // Create filename with session ID and timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `session-${sessionId}-${timestamp}.webm`;
+      console.log(`Uploading recording: ${sessionId}-${new Date().toISOString()}.webm, Size: ${(blob.size / (1024 * 1024)).toFixed(2)}MB`);
 
-      console.log(`Uploading recording: ${filename}, Size: ${(blob.size / (1024 * 1024)).toFixed(2)}MB`);
+      // Build desired name using candidate full name; fall back to session-based
+      const safeName = (candidateName || `session-${sessionId}`).trim().replace(/\s+/g, ' ');
+      const desiredName = `${safeName}`;
 
-      // Upload to Supabase storage with progress tracking
-      const { data, error } = await supabase.storage
-        .from('exam-recordings')
-        .upload(filename, blob, {
-          cacheControl: '3600',
-          upsert: false
+      // Try Google Drive upload first (preferred method)
+      try {
+        console.log('Attempting Google Drive upload...');
+        
+        // Upload to Google Drive via Edge Function (FormData)
+        const form = new FormData();
+        form.append('file', blob, `${safeName}.webm`);
+        form.append('candidateName', desiredName);
+
+        const functionsBase = (import.meta as any).env?.VITE_SUPABASE_FUNCTIONS_URL || '/functions/v1';
+        console.log(`Using functions base URL: ${functionsBase}`);
+        
+        const res = await fetch(`${functionsBase}/upload-to-drive`, { 
+          method: 'POST', 
+          body: form 
         });
+        
+        if (!res.ok) {
+          const text = await res.text();
+          console.error(`Drive upload failed: ${res.status} ${text}`);
+          throw new Error(`Drive upload failed: ${res.status} ${text}`);
+        }
+        
+        const driveFile = await res.json();
+        console.log('Google Drive upload successful:', driveFile);
 
-      if (error) {
-        console.error('Storage upload error:', error);
-        throw new Error(`Upload failed: ${error.message}`);
+        // Update session with Drive link (prefer webViewLink); store file id as well
+        const { error: updateError } = await supabase
+          .from('candidate_sessions')
+          .update({ 
+            recording_url: driveFile.webViewLink || driveFile.webContentLink || driveFile.id,
+            recording_drive_file_id: driveFile.id
+          })
+          .eq('id', sessionId);
+
+        if (updateError) {
+          console.error('Database update error:', updateError);
+          throw new Error(`Failed to update session: ${updateError.message}`);
+        }
+
+        toast.success(`Recording uploaded to Drive (${(blob.size / (1024 * 1024)).toFixed(2)}MB)`);
+        return driveFile.id;
+
+      } catch (driveError) {
+        console.warn('Google Drive upload failed, trying Supabase storage fallback:', driveError);
+        
+        // Fallback to Supabase storage if Google Drive fails
+        const fileName = `session-${sessionId}-${new Date().toISOString()}.webm`;
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('exam-recordings')
+          .upload(fileName, blob, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error('Storage upload error:', uploadError);
+          throw new Error(`Upload failed: ${uploadError.message}`);
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('exam-recordings')
+          .getPublicUrl(fileName);
+
+        // Update session with storage URL
+        const { error: updateError } = await supabase
+          .from('candidate_sessions')
+          .update({ 
+            recording_url: urlData.publicUrl,
+            recording_drive_file_id: uploadData.path
+          })
+          .eq('id', sessionId);
+
+        if (updateError) {
+          console.error('Database update error:', updateError);
+          throw new Error(`Failed to update session: ${updateError.message}`);
+        }
+
+        toast.success(`Recording uploaded to storage (${(blob.size / (1024 * 1024)).toFixed(2)}MB)`);
+        return uploadData.path;
       }
 
-      // Update session with recording URL
-      const { error: updateError } = await supabase
-        .from('candidate_sessions')
-        .update({ 
-          recording_url: data.path,
-          recording_started_at: new Date().toISOString()
-        })
-        .eq('id', sessionId);
-
-      if (updateError) {
-        console.error('Database update error:', updateError);
-        throw new Error(`Failed to update session: ${updateError.message}`);
-      }
-
-      toast.success(`Recording uploaded successfully (${(blob.size / (1024 * 1024)).toFixed(2)}MB)`);
-      return data.path;
     } catch (error) {
       console.error('Upload error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to upload recording';
