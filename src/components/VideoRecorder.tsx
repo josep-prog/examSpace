@@ -275,7 +275,9 @@ const VideoRecorder = ({ sessionId, candidateName, onRecordingStart, onRecording
         form.append('file', blob, `${safeName}.webm`);
         form.append('candidateName', desiredName);
 
-        const functionsBase = (import.meta as any).env?.VITE_SUPABASE_FUNCTIONS_URL || '/functions/v1';
+        // Try to get the correct Supabase functions URL
+        const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+        const functionsBase = supabaseUrl ? `${supabaseUrl}/functions/v1` : '/functions/v1';
         console.log(`Using functions base URL: ${functionsBase}`);
         
         const res = await fetch(`${functionsBase}/upload-to-drive`, { 
@@ -293,12 +295,21 @@ const VideoRecorder = ({ sessionId, candidateName, onRecordingStart, onRecording
         console.log('Google Drive upload successful:', driveFile);
 
         // Update session with Drive link (prefer webViewLink); store file id as well
+        const updateData: any = { 
+          recording_url: driveFile.webViewLink || driveFile.webContentLink || driveFile.id
+        };
+        
+        // Only include recording_drive_file_id if the column exists
+        // This prevents errors if the column hasn't been added yet
+        try {
+          updateData.recording_drive_file_id = driveFile.id;
+        } catch (error) {
+          console.warn('recording_drive_file_id column not available, skipping');
+        }
+
         const { error: updateError } = await supabase
           .from('candidate_sessions')
-          .update({ 
-            recording_url: driveFile.webViewLink || driveFile.webContentLink || driveFile.id,
-            recording_drive_file_id: driveFile.id
-          })
+          .update(updateData)
           .eq('id', sessionId);
 
         if (updateError) {
@@ -311,6 +322,11 @@ const VideoRecorder = ({ sessionId, candidateName, onRecordingStart, onRecording
 
       } catch (driveError) {
         console.warn('Google Drive upload failed, trying Supabase storage fallback:', driveError);
+        
+        // If it's a 404 error, the Edge Function isn't deployed
+        if (driveError instanceof Error && driveError.message.includes('404')) {
+          console.warn('Google Drive Edge Function not deployed, using Supabase storage only');
+        }
         
         // Fallback to Supabase storage if Google Drive fails
         const fileName = `session-${sessionId}-${new Date().toISOString()}.webm`;
@@ -333,12 +349,20 @@ const VideoRecorder = ({ sessionId, candidateName, onRecordingStart, onRecording
           .getPublicUrl(fileName);
 
         // Update session with storage URL
+        const updateData: any = { 
+          recording_url: urlData.publicUrl
+        };
+        
+        // Only include recording_drive_file_id if the column exists
+        try {
+          updateData.recording_drive_file_id = uploadData.path;
+        } catch (error) {
+          console.warn('recording_drive_file_id column not available, skipping');
+        }
+
         const { error: updateError } = await supabase
           .from('candidate_sessions')
-          .update({ 
-            recording_url: urlData.publicUrl,
-            recording_drive_file_id: uploadData.path
-          })
+          .update(updateData)
           .eq('id', sessionId);
 
         if (updateError) {
