@@ -3,13 +3,28 @@ const CACHE_NAME = 'exam-space-v1';
 const urlsToCache = [
   '/',
   '/index.html',
-  '/src/main.tsx',
-  '/src/App.tsx',
-  '/src/App.css',
-  '/src/index.css',
   '/logo.png',
   '/favicon.png',
   '/manifest.json'
+];
+
+// Development mode detection
+const isDevelopment = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+
+// Files to exclude from caching in development
+const excludeFromCache = [
+  '/@vite/client',
+  '/@react-refresh',
+  '/node_modules/',
+  '/src/',
+  '/@vite/',
+  '?t=',
+  '?v=',
+  '?import',
+  '.tsx',
+  '.ts',
+  '.js',
+  '.mjs'
 ];
 
 // Install event - cache resources
@@ -44,6 +59,18 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Helper function to check if URL should be excluded from caching
+function shouldExcludeFromCache(url) {
+  if (!isDevelopment) return false;
+  
+  return excludeFromCache.some(pattern => {
+    if (pattern.startsWith('/') && pattern.endsWith('/')) {
+      return url.includes(pattern.slice(1, -1));
+    }
+    return url.includes(pattern);
+  });
+}
+
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
@@ -53,6 +80,12 @@ self.addEventListener('fetch', (event) => {
 
   // Skip external requests
   if (!event.request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
+  // In development, skip caching for development files
+  if (shouldExcludeFromCache(event.request.url)) {
+    console.log('Service Worker: Skipping cache for development file', event.request.url);
     return;
   }
 
@@ -70,6 +103,11 @@ self.addEventListener('fetch', (event) => {
           .then((response) => {
             // Don't cache if not a valid response
             if (!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+
+            // In development, don't cache development files
+            if (shouldExcludeFromCache(event.request.url)) {
               return response;
             }
 

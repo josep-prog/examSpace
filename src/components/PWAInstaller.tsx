@@ -37,8 +37,11 @@ const PWAInstaller: React.FC = () => {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
 
-    // Register service worker
-    if ('serviceWorker' in navigator) {
+    // Register service worker (only in production or when explicitly enabled)
+    const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const enableSW = !isDevelopment || localStorage.getItem('enable-sw') === 'true';
+    
+    if ('serviceWorker' in navigator && enableSW) {
       navigator.serviceWorker.register('/sw.js')
         .then((registration) => {
           console.log('Service Worker registered successfully:', registration);
@@ -46,6 +49,8 @@ const PWAInstaller: React.FC = () => {
         .catch((error) => {
           console.log('Service Worker registration failed:', error);
         });
+    } else if (isDevelopment) {
+      console.log('Service Worker disabled in development mode. Set localStorage.setItem("enable-sw", "true") to enable.');
     }
 
     return () => {

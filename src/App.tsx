@@ -12,6 +12,7 @@ import CreateExam from "./pages/CreateExam";
 import EditExam from "./pages/EditExam";
 import ManageExams from "./pages/ManageExams";
 import ExamSessions from "./pages/ExamSessions";
+import Submissions from "./pages/Submissions";
 import CandidateRegister from "./pages/CandidateRegister";
 import CandidateExam from "./pages/CandidateExam";
 import CandidateExamComplete from "./pages/CandidateExamComplete";
@@ -39,6 +40,7 @@ const App = () => (
           <Route path="/admin/exam/:examId/edit" element={<EditExam />} />
           <Route path="/admin/manage-exams" element={<ManageExams />} />
           <Route path="/admin/exam/:examId/sessions" element={<ExamSessions />} />
+          <Route path="/admin/submissions" element={<Submissions />} />
           <Route path="/admin/session/:sessionId/review" element={<SessionReview />} />
           <Route path="/candidate/register" element={<CandidateRegister />} />
           <Route path="/candidate/exam/:sessionId" element={<CandidateExam />} />

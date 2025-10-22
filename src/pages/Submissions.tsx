@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,8 @@ import {
   Mail,
   Phone,
   Calendar,
-  Timer
+  Timer,
+  Users
 } from "lucide-react";
 
 interface ExamSession {
@@ -65,50 +66,35 @@ interface AnswerData {
   };
 }
 
-const ExamSessions = () => {
-  const { examId } = useParams<{ examId: string }>();
+const Submissions = () => {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<ExamSession[]>([]);
   const [loading, setLoading] = useState(true);
-  const [exam, setExam] = useState<any>(null);
   const [selectedSession, setSelectedSession] = useState<ExamSession | null>(null);
   const [sessionAnswers, setSessionAnswers] = useState<AnswerData[]>([]);
   const [answersLoading, setAnswersLoading] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (examId) {
-      loadSessions();
-    }
-  }, [examId]);
+    loadAllSessions();
+  }, []);
 
-  const loadSessions = async () => {
+  const loadAllSessions = async () => {
     try {
-      // Load exam details
-      const { data: examData, error: examError } = await supabase
-        .from("exams")
-        .select("*")
-        .eq("id", examId)
-        .single();
-
-      if (examError) throw examError;
-      setExam(examData);
-
-      // Load sessions
+      // Load all sessions from all exams
       const { data: sessionsData, error: sessionsError } = await supabase
         .from("candidate_sessions")
         .select(`
           *,
           exam:exams(title, rotation_slot)
         `)
-        .eq("exam_id", examId)
         .order("started_at", { ascending: false });
 
       if (sessionsError) throw sessionsError;
       setSessions(sessionsData || []);
     } catch (error) {
       console.error("Error loading sessions:", error);
-      toast.error("Failed to load exam sessions");
+      toast.error("Failed to load candidate sessions");
     } finally {
       setLoading(false);
     }
@@ -263,7 +249,7 @@ const ExamSessions = () => {
       <div className="min-h-screen bg-gradient-subtle flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading sessions...</p>
+          <p className="text-muted-foreground">Loading submissions...</p>
         </div>
       </div>
     );
@@ -275,13 +261,13 @@ const ExamSessions = () => {
       <header className="border-b border-border bg-card shadow-sm">
         <div className="container mx-auto flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="sm" onClick={() => navigate("/admin/manage-exams")}>
+            <Button variant="outline" size="sm" onClick={() => navigate("/admin/dashboard")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Exams
+              Back to Dashboard
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Exam Sessions</h1>
-              <p className="text-sm text-muted-foreground">{exam?.title}</p>
+              <h1 className="text-2xl font-bold text-foreground">Submissions</h1>
+              <p className="text-sm text-muted-foreground">All candidate exam submissions and recordings</p>
             </div>
           </div>
         </div>
@@ -292,10 +278,10 @@ const ExamSessions = () => {
         {sessions.length === 0 ? (
           <Card>
             <CardContent className="text-center py-12">
-              <User className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No sessions found</h3>
+              <Users className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No submissions found</h3>
               <p className="text-muted-foreground">
-                No candidates have taken this exam yet.
+                No candidates have submitted exams yet.
               </p>
             </CardContent>
           </Card>
@@ -306,9 +292,9 @@ const ExamSessions = () => {
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center">
-                    <User className="h-8 w-8 text-primary" />
+                    <Users className="h-8 w-8 text-primary" />
                     <div className="ml-4">
-                      <p className="text-sm font-medium text-muted-foreground">Total Sessions</p>
+                      <p className="text-sm font-medium text-muted-foreground">Total Submissions</p>
                       <p className="text-2xl font-bold">{sessions.length}</p>
                     </div>
                   </div>
@@ -349,12 +335,12 @@ const ExamSessions = () => {
               </Card>
             </div>
 
-            {/* Enhanced Sessions Table */}
+            {/* Submissions Table */}
             <Card>
               <CardHeader>
-                <CardTitle>Candidate Sessions</CardTitle>
+                <CardTitle>Candidate Submissions</CardTitle>
                 <CardDescription>
-                  Monitor candidate exam sessions, review answers, and access recordings
+                  Review all candidate exam submissions, answers, and recordings
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -368,7 +354,7 @@ const ExamSessions = () => {
                         <TableHead className="min-w-[100px]">Duration</TableHead>
                         <TableHead className="min-w-[120px]">Started</TableHead>
                         <TableHead className="min-w-[100px]">Flags</TableHead>
-                        <TableHead className="min-w-[150px]">Answers Document</TableHead>
+                        <TableHead className="min-w-[150px]">Questions & Answers</TableHead>
                         <TableHead className="min-w-[150px]">Video Recording</TableHead>
                         <TableHead className="min-w-[100px]">Actions</TableHead>
                       </TableRow>
@@ -442,7 +428,7 @@ const ExamSessions = () => {
                             )}
                           </TableCell>
 
-                          {/* Answers Document Column */}
+                          {/* Questions & Answers Column */}
                           <TableCell>
                             <Dialog>
                               <DialogTrigger asChild>
@@ -645,5 +631,4 @@ const ExamSessions = () => {
   );
 };
 
-export default ExamSessions;
-
+export default Submissions;

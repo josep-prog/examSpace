@@ -105,14 +105,14 @@ const AdminDashboard = () => {
 
           <Card 
             className="cursor-pointer transition-all duration-300 hover:shadow-lg"
-            onClick={() => navigate("/admin/manage-exams")}
+            onClick={() => navigate("/admin/submissions")}
           >
             <CardHeader>
               <Users className="mb-2 h-8 w-8 text-success" />
-              <CardTitle>Monitor Sessions</CardTitle>
+              <CardTitle>Submissions</CardTitle>
             </CardHeader>
             <CardContent>
-              <CardDescription>Track ongoing candidate exam sessions</CardDescription>
+              <CardDescription>Review candidate submissions, answers, and recordings</CardDescription>
             </CardContent>
           </Card>
 
